@@ -17,7 +17,7 @@ class ConfigData {
         this.processFiles();
     }
 
-    private processFiles() {
+    private processFiles():void {
         this.files = new Dictionary<string, FilePath>();
         var fileQuery:JQuery = $(this.document).find("Files");
         var files:JQuery = fileQuery.children();

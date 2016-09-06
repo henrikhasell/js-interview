@@ -2,7 +2,7 @@
     <NumShields>4</NumShields>
     <NumEnemies>5</NumEnemies>
     <NumLives>3</NumLives>
-    <EnemySpeed>40</EnemySpeed>
+    <EnemySpeed>30</EnemySpeed>
     <Files>
         <PNG id="PlayerBullet" url="img/playerbullet.png"/>
         <PNG id="PlayerShip" url="img/playership.png"/>

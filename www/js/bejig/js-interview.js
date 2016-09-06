@@ -43,10 +43,13 @@ var GameController = (function () {
     GameController.prototype.addEventListeners = function () {
         this.listen(EnemyShipEvent.DEAD, this.handleEnemyShipDead, this);
         this.listen(PlayerShipEvent.DEAD, this.handlePlayerShipDead, this);
+        this.listen(GameOverEvent.WIN, this.handleGameWin, this);
+        this.listen(GameOverEvent.LOSE, this.handleGameOver, this);
+        this.listen(GameOverEvent.NEW, this.handleNewGame, this);
     };
     GameController.prototype.handleEnemyShipDead = function (event) {
         this.model.enemyShipDead();
-        this.model.updateScore(1);
+        this.model.updateScore();
         this.dispatchEvent(new PlayerScoreUpdatedEvent());
         if (this.model.getEnemiesLeft() == 0) {
             this.dispatchEvent(new GameOverEvent(GameOverEvent.WIN));
@@ -54,10 +57,26 @@ var GameController = (function () {
     };
     GameController.prototype.handlePlayerShipDead = function (event) {
         this.model.playerShipDead();
-        this.dispatchEvent(new PlayerLivesUpdatedEvent());
-        if (this.model.getNumLives() == 0) {
+        if (this.model.getNumLives() > 0) {
+            this.dispatchEvent(new PlayerLivesUpdatedEvent());
+            this.dispatchEvent(new PlayerShipEvent(PlayerShipEvent.REVIVE));
+        }
+        else {
             this.dispatchEvent(new GameOverEvent(GameOverEvent.LOSE));
         }
+    };
+    GameController.prototype.handleGameWin = function (event) {
+        this.model.nextLevel();
+        this.dispatchEvent(new PlayerLivesUpdatedEvent());
+        this.dispatchEvent(new GameViewEvent(GameViewEvent.LEVEL));
+    };
+    GameController.prototype.handleGameOver = function (event) {
+        this.model.highScoreUpdate();
+        this.dispatchEvent(new GameViewEvent(GameViewEvent.OVER));
+    };
+    GameController.prototype.handleNewGame = function (event) {
+        this.model.reset();
+        setTimeout(this.dispatchEvent(new GameViewEvent(GameViewEvent.START)), 1000);
     };
     GameController.prototype.listen = function (type, handler, scope) {
         this.eventBus.addEventListener(type, handler, scope);
@@ -82,6 +101,7 @@ var GameOverEvent = (function (_super) {
     }
     GameOverEvent.WIN = "GameOverEvent.WIN";
     GameOverEvent.LOSE = "GameOverEvent.LOSE";
+    GameOverEvent.NEW = "GameOverEvent.NEW";
     return GameOverEvent;
 })(EventObject);
 var PlayerLivesUpdatedEvent = (function (_super) {
@@ -100,26 +120,51 @@ var PlayerScoreUpdatedEvent = (function (_super) {
     PlayerScoreUpdatedEvent.UPDATED = "PlayerScoreUpdatedEvent.UPDATED";
     return PlayerScoreUpdatedEvent;
 })(EventObject);
-var GameModel = (function () {
+var GameModel = (function (_super) {
+    __extends(GameModel, _super);
     function GameModel(config) {
+        _super.call(this);
         this.config = config;
         this.reset();
+        this.highScores = [0, 0, 0];
     }
     GameModel.prototype.reset = function () {
         this.numEnemies = this.config.getNumEnemies();
         this.numLives = this.config.getNumLives();
         this.numShields = this.config.getNumShields();
         this.enemiesLeft = this.config.getNumEnemies();
+        this.enemySpeed = this.config.getEnemySpeed();
         this.score = 0;
+        this.lastEnemyDeadTime = 0;
+        this.level = 1;
+        this.enemySpeed = this.config.getEnemySpeed();
+    };
+    GameModel.prototype.nextLevel = function () {
+        this.level += 1;
+        this.numEnemies += 1;
+        this.enemiesLeft = this.numEnemies;
+        this.enemySpeed += 2;
+        this.numLives = this.config.getNumLives();
     };
     GameModel.prototype.enemyShipDead = function () {
         this.enemiesLeft--;
     };
+    GameModel.prototype.highScoreUpdate = function () {
+        this.highScores.push(this.score);
+        this.highScores = this.highScores.sort(function (a, b) { return b - a; });
+    };
     GameModel.prototype.playerShipDead = function () {
         this.numLives--;
     };
-    GameModel.prototype.updateScore = function (value) {
-        this.score += value;
+    GameModel.prototype.updateScore = function () {
+        var enemyDeadInterval = Date.now() - this.lastEnemyDeadTime;
+        this.lastEnemyDeadTime = Date.now();
+        if (enemyDeadInterval > 1000) {
+            this.score += 100;
+        }
+        else {
+            this.score += ((1000 - enemyDeadInterval) + 100);
+        }
     };
     GameModel.prototype.getEnemiesLeft = function () {
         return this.enemiesLeft;
@@ -136,8 +181,17 @@ var GameModel = (function () {
     GameModel.prototype.getNumShields = function () {
         return this.numShields;
     };
+    GameModel.prototype.getEnemySpeed = function () {
+        return this.enemySpeed;
+    };
+    GameModel.prototype.getLevel = function () {
+        return this.level;
+    };
+    GameModel.prototype.getHighScores = function () {
+        return this.highScores;
+    };
     return GameModel;
-})();
+})(EventDispatcher);
 var AbstractView = (function (_super) {
     __extends(AbstractView, _super);
     function AbstractView() {
@@ -174,6 +228,7 @@ var GameView = (function (_super) {
     __extends(GameView, _super);
     function GameView(model) {
         this.model = model;
+        this.highScoreList = [];
         _super.call(this);
     }
     GameView.prototype.create = function () {
@@ -187,6 +242,10 @@ var GameView = (function (_super) {
     GameView.prototype.addEventListeners = function () {
         this.listen(PlayerLivesUpdatedEvent.UPDATED, this.handlePlayerLivesUpdate, this);
         this.listen(PlayerScoreUpdatedEvent.UPDATED, this.handlePlayerScoreUpdate, this);
+        this.listen(GameViewEvent.LEVEL, this.nextLevel, this);
+        this.listen(GameViewEvent.OVER, this.handleGameOver, this);
+        this.listen(PlayerShipEvent.REVIVE, this.handlePlayerRevive, this);
+        this.listen(GameViewEvent.START, this.handleNewGame, this);
     };
     GameView.prototype.createBackground = function () {
         this.background = GraphicsUtil.createRectangle(this.renderer.getGameSize());
@@ -198,11 +257,18 @@ var GameView = (function (_super) {
     };
     GameView.prototype.createEnemyShips = function () {
         this.enemyShips = [];
+        this.enemySpeed = this.model.getEnemySpeed();
         var ship;
         for (var i = 0; i < this.model.getNumEnemies(); i++) {
-            ship = new EnemyShip();
+            ship = new EnemyShip(this.enemySpeed);
             this.enemyShips.push(ship);
             this.renderer.addChild(ship);
+        }
+    };
+    GameView.prototype.removeEnemyShips = function () {
+        for (var _i = 0, _a = this.enemyShips; _i < _a.length; _i++) {
+            var ship = _a[_i];
+            ship.dispose();
         }
     };
     GameView.prototype.createShields = function () {
@@ -217,12 +283,27 @@ var GameView = (function (_super) {
             this.shields.push(shield);
         }
     };
+    GameView.prototype.removeShields = function () {
+        for (var _i = 0, _a = this.shields; _i < _a.length; _i++) {
+            var shield = _a[_i];
+            this.removeChild(shield);
+        }
+    };
     GameView.prototype.createFields = function () {
         this.createScoreLabel();
         this.createScore();
         this.createLivesLabel();
         this.createLives();
-        this.createGameName();
+        this.createLevelLabel();
+        this.createLevel();
+    };
+    GameView.prototype.removeFields = function () {
+        this.removeChild(this.livesLabel);
+        this.removeChild(this.lives);
+        this.removeChild(this.scoreLabel);
+        this.removeChild(this.score);
+        this.removeChild(this.levelLabel);
+        this.removeChild(this.level);
     };
     GameView.prototype.createScoreLabel = function () {
         this.scoreLabel = new PIXI.extras.BitmapText("score", { font: Font.HELVETICA, align: "right" });
@@ -250,69 +331,203 @@ var GameView = (function (_super) {
         this.lives.position = new PIXI.Point(40, this.renderer.getGameSize().y - 20);
         this.addChild(this.lives);
     };
-    GameView.prototype.createGameName = function () {
-        this.gameName = new PIXI.extras.BitmapText("spaceinvaders", { font: Font.HELVETICA, align: "right" });
-        this.gameName.position = new PIXI.Point(210, this.renderer.getGameSize().y - 20);
-        this.addChild(this.gameName);
+    GameView.prototype.createLevel = function () {
+        this.level = new PIXI.extras.BitmapText(this.model.getLevel().toString(), {
+            font: Font.HELVETICA,
+            align: "left"
+        });
+        this.level.position = new PIXI.Point(260, this.renderer.getGameSize().y - 20);
+        this.addChild(this.level);
+    };
+    GameView.prototype.createLevelLabel = function () {
+        this.levelLabel = new PIXI.extras.BitmapText("Level:", { font: Font.HELVETICA, align: "right" });
+        this.levelLabel.position = new PIXI.Point(210, this.renderer.getGameSize().y - 20);
+        this.addChild(this.levelLabel);
+    };
+    GameView.prototype.levelLabelUpdate = function () {
+        this.level.text = this.model.getLevel().toString();
+    };
+    GameView.prototype.createGameOverLabel = function () {
+        this.gameOverLabel = new PIXI.extras.BitmapText("GAME OVER", { font: Font.GAMEOVER, align: "center", tint: 0xFF0000 });
+        this.gameOverLabel.position = new PIXI.Point(100, 175);
+        this.addChild(this.gameOverLabel);
+    };
+    GameView.prototype.createHighScoreLabel = function () {
+        this.highScoreLabel = new PIXI.extras.BitmapText("1st:" + "\n2nd:" + "\n3rd:", {
+            font: Font.HELVETICA,
+            align: "left"
+        });
+        this.highScoreLabel.position = new PIXI.Point(100, 225);
+        this.addChild(this.highScoreLabel);
+    };
+    GameView.prototype.createHighScores = function () {
+        this.highScores = new PIXI.extras.BitmapText(this.highScoreList[0].toString() + "\n" +
+            this.highScoreList[1].toString() + "\n" +
+            this.highScoreList[2].toString(), {
+            font: Font.HELVETICA,
+            align: "right"
+        });
+        this.highScores.position = new PIXI.Point(150, 225);
+        this.addChild(this.highScores);
+    };
+    GameView.prototype.createGameOverScreen = function () {
+        this.highScoreList = this.model.getHighScores();
+        this.createGameOverLabel();
+        this.createHighScoreLabel();
+        this.createHighScores();
+    };
+    GameView.prototype.removeGameOver = function () {
+        this.removeChild(this.gameOverLabel);
+        this.removeChild(this.highScoreLabel);
+        this.removeChild(this.highScores);
+    };
+    GameView.prototype.nextLevel = function (event) {
+        this.removeShields();
+        this.removeEnemyShips();
+        this.createEnemyShips();
+        this.createShields();
+        this.levelLabelUpdate();
+    };
+    GameView.prototype.handleGameOver = function (event) {
+        this.removeShields();
+        this.removeEnemyShips();
+        var stage = this.renderer.getStage();
+        this.removeFields();
+        this.createGameOverScreen();
+        MouseUtil.addMouseDown(stage, this.handleNewGameSelected, this);
+    };
+    GameView.prototype.handleNewGameSelected = function () {
+        var stage = this.renderer.getStage();
+        MouseUtil.removeMouseDown(stage, this.handleNewGameSelected);
+        this.dispatch(new GameViewEvent(GameOverEvent.NEW));
+    };
+    GameView.prototype.handleNewGame = function (event) {
+        this.removeGameOver();
+        this.createPlayerShip();
+        this.createEnemyShips();
+        this.createShields();
+        this.createFields();
     };
     GameView.prototype.handlePlayerScoreUpdate = function (event) {
         this.score.text = this.model.getScore().toString();
     };
     GameView.prototype.handlePlayerLivesUpdate = function (event) {
         this.lives.text = this.model.getNumLives().toString();
-        if (this.model.getNumLives() > 0) {
-            this.playerShip.revive();
-        }
+    };
+    GameView.prototype.handlePlayerRevive = function (event) {
+        this.playerShip.revive();
     };
     return GameView;
 })(AbstractView);
-var EnemyBullet = (function (_super) {
-    __extends(EnemyBullet, _super);
-    function EnemyBullet(position) {
+var Style = (function () {
+    function Style() {
+    }
+    Style.addPath = function (filePath) {
+        Style.map[filePath.id] = filePath;
+    };
+    Style.getPath = function (id) {
+        return Style.map[id];
+    };
+    Style.getSprite = function (id) {
+        var path = this.getPath(id);
+        return PIXI.Sprite.fromImage(path.url);
+    };
+    Style.getMovieClip = function (id) {
+        var path = this.getPath(id);
+        var textures = [];
+        for (var i = 0; i < path.frames; i++) {
+            var texture = PIXI.Texture.fromFrame(path.id + Style.formatTexture(i));
+            textures.push(texture);
+        }
+        return new PIXI.extras.MovieClip(textures);
+    };
+    Style.formatTexture = function (num) {
+        var r = num.toString();
+        while (r.length < 4) {
+            r = "0" + r;
+        }
+        return r;
+    };
+    Style.PLAYER_SHIP = "PlayerShip";
+    Style.PLAYER_BULLET = "PlayerBullet";
+    Style.ENEMY_SHIP = "EnemyShip";
+    Style.ENEMY_BULLET = "EnemyBullet";
+    Style.SHIELD = "Shield";
+    Style.map = new Dictionary();
+    return Style;
+})();
+var Bullet = (function (_super) {
+    __extends(Bullet, _super);
+    function Bullet(position) {
         _super.call(this);
         this.sprite.position = position;
     }
-    EnemyBullet.prototype.create = function () {
+    Bullet.prototype.create = function () {
         _super.prototype.create.call(this);
         this.createBullet();
+        this.addEventListeners();
     };
-    EnemyBullet.prototype.dispose = function () {
+    Bullet.prototype.dispose = function () {
         if (this.parent) {
             this.renderer.removeChild(this);
         }
     };
-    EnemyBullet.prototype.createBullet = function () {
-        this.sprite = Style.getSprite(Style.ENEMY_BULLET);
+    Bullet.prototype.addEventListeners = function () {
+        this.listen(GameOverEvent.WIN, this.dispose, this);
+        this.listen(GameOverEvent.LOSE, this.dispose, this);
+    };
+    Bullet.prototype.createBullet = function () {
+        this.sprite = Style.getSprite(this.bulletStyle);
         this.addChild(this.sprite);
     };
-    EnemyBullet.prototype.fire = function () {
+    Bullet.prototype.fire = function () {
         this.renderer.addChild(this);
         this.tween = TweenMax.to(this.sprite.position, 1, {
-            y: this.renderer.getGameSize().y,
+            y: this.fireYPosition,
             ease: Linear.easeNone,
             onUpdate: ObjectUtil.delegate(this.handleTweenUpdate, this),
             onComplete: ObjectUtil.delegate(this.handleTweenComplete, this)
         });
     };
-    EnemyBullet.prototype.handleTweenUpdate = function () {
-        this.dispatch(new EnemyBulletEvent(this));
+    Bullet.prototype.handleTweenUpdate = function () {
+        this.dispatch(this.event);
     };
-    EnemyBullet.prototype.handleTweenComplete = function () {
+    Bullet.prototype.handleTweenComplete = function () {
         this.dispose();
     };
-    EnemyBullet.prototype.getSprite = function () {
+    Bullet.prototype.getSprite = function () {
         return this.sprite;
     };
-    return EnemyBullet;
+    return Bullet;
 })(AbstractView);
+var EnemyBullet = (function (_super) {
+    __extends(EnemyBullet, _super);
+    function EnemyBullet(position) {
+        this.bulletStyle = Style.ENEMY_BULLET;
+        this.event = new EnemyBulletEvent(this);
+        _super.call(this, position);
+        this.fireYPosition = this.renderer.getGameSize().y;
+    }
+    return EnemyBullet;
+})(Bullet);
 var EnemyShip = (function (_super) {
     __extends(EnemyShip, _super);
-    function EnemyShip() {
-        _super.apply(this, arguments);
+    function EnemyShip(enemySpeed) {
+        this.enemySpeed = enemySpeed;
+        _super.call(this);
     }
+    EnemyShip.prototype.setFireSpeed = function () {
+        this.fireSpeed = 60000 / this.enemySpeed;
+    };
+    EnemyShip.prototype.setMoveSpeed = function () {
+        this.moveSpeed = 40000 / this.enemySpeed;
+    };
     EnemyShip.prototype.create = function () {
         _super.prototype.create.call(this);
+        this.setFireSpeed();
+        this.setMoveSpeed();
         this.createShip();
+        this.createStartPoint(this.randomPoint);
         this.createTweens();
         this.startMoveTimer();
         this.startFireTimer();
@@ -323,8 +538,6 @@ var EnemyShip = (function (_super) {
         }
         this.moveTimer.removeEventListener(TimerEvent.TIMER, this);
         this.fireTimer.removeEventListener(TimerEvent.TIMER, this);
-        this.remove(PlayerBulletEvent.MOVE, this);
-        this.dispatch(new EnemyShipEvent());
     };
     EnemyShip.prototype.addEventListeners = function () {
         this.listen(PlayerBulletEvent.MOVE, this.handlePlayerBullet, this);
@@ -334,16 +547,19 @@ var EnemyShip = (function (_super) {
         this.ship.play();
         this.addChild(this.ship);
     };
+    EnemyShip.prototype.createStartPoint = function (point) {
+        this.ship.position.x = point.x;
+    };
     EnemyShip.prototype.createTweens = function () {
         this.tweens = new Dictionary();
     };
     EnemyShip.prototype.startMoveTimer = function () {
-        this.moveTimer = new Timer(1000);
+        this.moveTimer = new Timer(this.moveSpeed);
         this.moveTimer.addEventListener(TimerEvent.TIMER, this.handleMoveTimerUpdate, this);
         this.moveTimer.start();
     };
     EnemyShip.prototype.startFireTimer = function () {
-        this.fireTimer = new Timer(1500);
+        this.fireTimer = new Timer(this.fireSpeed);
         this.fireTimer.addEventListener(TimerEvent.TIMER, this.handleFireTimeUpdate, this);
         this.fireTimer.start();
     };
@@ -354,7 +570,11 @@ var EnemyShip = (function (_super) {
         new EnemyBullet(this.ship.position.clone()).fire();
     };
     EnemyShip.prototype.handlePlayerBullet = function (event) {
-        if (BoundsUtil.isInBounds(this.ship, event.getBullet().getSprite())) {
+        var blockWidth = 16;
+        var blockHeight = 16;
+        if (BoundsUtil.isInBounds(this.ship, event.getBullet().getSprite(), blockWidth, blockHeight)) {
+            this.remove(PlayerBulletEvent.MOVE, this);
+            this.dispatch(new EnemyShipEvent());
             this.dispose();
         }
     };
@@ -376,42 +596,13 @@ var EnemyShip = (function (_super) {
 var PlayerBullet = (function (_super) {
     __extends(PlayerBullet, _super);
     function PlayerBullet(position) {
-        _super.call(this);
-        this.sprite.position = position;
+        this.bulletStyle = Style.PLAYER_BULLET;
+        _super.call(this, position);
+        this.event = new PlayerBulletEvent(this);
+        this.fireYPosition = 0;
     }
-    PlayerBullet.prototype.create = function () {
-        _super.prototype.create.call(this);
-        this.createBullet();
-    };
-    PlayerBullet.prototype.dispose = function () {
-        if (this.parent) {
-            this.renderer.removeChild(this);
-        }
-    };
-    PlayerBullet.prototype.createBullet = function () {
-        this.sprite = Style.getSprite(Style.PLAYER_BULLET);
-        this.addChild(this.sprite);
-    };
-    PlayerBullet.prototype.fire = function () {
-        this.renderer.addChild(this);
-        this.tween = TweenMax.to(this.sprite.position, 1, {
-            y: 0,
-            ease: Linear.easeNone,
-            onUpdate: ObjectUtil.delegate(this.handleTweenUpdate, this),
-            onComplete: ObjectUtil.delegate(this.handleTweenComplete, this)
-        });
-    };
-    PlayerBullet.prototype.handleTweenUpdate = function () {
-        this.dispatch(new PlayerBulletEvent(this));
-    };
-    PlayerBullet.prototype.handleTweenComplete = function () {
-        this.dispose();
-    };
-    PlayerBullet.prototype.getSprite = function () {
-        return this.sprite;
-    };
     return PlayerBullet;
-})(AbstractView);
+})(Bullet);
 var PlayerShip = (function (_super) {
     __extends(PlayerShip, _super);
     function PlayerShip() {
@@ -432,7 +623,7 @@ var PlayerShip = (function (_super) {
             this.removeChild(this.ship);
         }
         this.removeEventListeners();
-        this.dispatch(new PlayerShipEvent());
+        this.dispatch(new PlayerShipEvent(PlayerShipEvent.DEAD));
     };
     PlayerShip.prototype.addEventListeners = function () {
         var stage = this.renderer.getStage();
@@ -455,10 +646,14 @@ var PlayerShip = (function (_super) {
     };
     PlayerShip.prototype.handleMouseMove = function (event) {
         var data = event.data;
-        this.ship.position = new PIXI.Point(data.global.x, this.ship.position.y);
+        if (data.global.x < 265 && data.global.x > 0) {
+            this.ship.position = new PIXI.Point(data.global.x, this.ship.position.y);
+        }
     };
     PlayerShip.prototype.handleEnemyBulletMove = function (event) {
-        if (BoundsUtil.isInBounds(this.ship, event.getBullet().getSprite())) {
+        var blockWidth = 18;
+        var blockHeight = 18;
+        if (BoundsUtil.isInBounds(this.ship, event.getBullet().getSprite(), blockWidth, blockHeight)) {
             this.dispose();
         }
     };
@@ -532,9 +727,11 @@ var Shield = (function (_super) {
         }
     };
     Shield.prototype.checkBlockBounds = function (bullet) {
+        var blockWidth = 6;
+        var blockHeight = 6;
         for (var i = 0; i < this.blocks.length; i++) {
             var block = this.blocks[i];
-            if (block.visible && BoundsUtil.isInBounds(block, bullet)) {
+            if (block.visible && BoundsUtil.isInBounds(block, bullet, blockWidth, blockHeight)) {
                 return block;
             }
         }
@@ -563,6 +760,17 @@ var EnemyShipEvent = (function (_super) {
     EnemyShipEvent.DEAD = 'EnemyShipEvent.DEAD';
     return EnemyShipEvent;
 })(EventObject);
+var GameViewEvent = (function (_super) {
+    __extends(GameViewEvent, _super);
+    function GameViewEvent(type) {
+        _super.call(this, type);
+    }
+    GameViewEvent.LEVEL = "GameViewEvent.LEVEL";
+    GameViewEvent.OVER = "GameViewEvent.OVER";
+    GameViewEvent.NEW = "GameViewEvent.NEW";
+    GameViewEvent.START = "GameViewEvent.START";
+    return GameViewEvent;
+})(EventObject);
 var PlayerBulletEvent = (function (_super) {
     __extends(PlayerBulletEvent, _super);
     function PlayerBulletEvent(data) {
@@ -577,62 +785,27 @@ var PlayerBulletEvent = (function (_super) {
 })(EventObject);
 var PlayerShipEvent = (function (_super) {
     __extends(PlayerShipEvent, _super);
-    function PlayerShipEvent() {
-        _super.call(this, PlayerShipEvent.DEAD);
+    function PlayerShipEvent(type) {
+        _super.call(this, type);
     }
     PlayerShipEvent.DEAD = 'PlayerShipEvent.DEAD';
+    PlayerShipEvent.REVIVE = "PlayerShipEvent.REVIVE";
     return PlayerShipEvent;
 })(EventObject);
 var Font = (function () {
     function Font() {
     }
     Font.HELVETICA = "12px Helvetica";
+    Font.GAMEOVER = "18px Helvetica";
     return Font;
-})();
-var Style = (function () {
-    function Style() {
-    }
-    Style.addPath = function (filePath) {
-        Style.map[filePath.id] = filePath;
-    };
-    Style.getPath = function (id) {
-        return Style.map[id];
-    };
-    Style.getSprite = function (id) {
-        var path = this.getPath(id);
-        return PIXI.Sprite.fromImage(path.url);
-    };
-    Style.getMovieClip = function (id) {
-        var path = this.getPath(id);
-        var textures = [];
-        for (var i = 0; i < path.frames; i++) {
-            var texture = PIXI.Texture.fromFrame(path.id + Style.formatTexture(i));
-            textures.push(texture);
-        }
-        return new PIXI.extras.MovieClip(textures);
-    };
-    Style.formatTexture = function (num) {
-        var r = num.toString();
-        while (r.length < 4) {
-            r = "0" + r;
-        }
-        return r;
-    };
-    Style.PLAYER_SHIP = "PlayerShip";
-    Style.PLAYER_BULLET = "PlayerBullet";
-    Style.ENEMY_SHIP = "EnemyShip";
-    Style.ENEMY_BULLET = "EnemyBullet";
-    Style.SHIELD = "Shield";
-    Style.map = new Dictionary();
-    return Style;
 })();
 var BoundsUtil = (function () {
     function BoundsUtil() {
     }
-    BoundsUtil.isInBounds = function (a, b) {
+    BoundsUtil.isInBounds = function (a, b, w, h) {
         var aPoint = GraphicsUtil.globalPosition(a);
         var bPoint = GraphicsUtil.globalPosition(b);
-        var rectangle = new PIXI.Rectangle(aPoint.x, aPoint.y);
+        var rectangle = new PIXI.Rectangle(aPoint.x, aPoint.y, w, h);
         return rectangle.contains(bPoint.x, bPoint.y);
     };
     BoundsUtil.globalPosition = function (object) {
@@ -745,6 +918,8 @@ var ConfigRequest = (function (_super) {
 /// <reference path="../ts/com/game/model/GameModel.ts" />
 /// <reference path="../ts/com/game/view/AbstractView.ts" />
 /// <reference path="../ts/com/game/view/GameView.ts" />
+/// <reference path="../ts/com/game/view/Style.ts" />
+/// <reference path="../ts/com/game/view/display/Bullet.ts" />
 /// <reference path="../ts/com/game/view/display/EnemyBullet.ts" />
 /// <reference path="../ts/com/game/view/display/EnemyShip.ts" />
 /// <reference path="../ts/com/game/view/display/PlayerBullet.ts" />
@@ -752,10 +927,10 @@ var ConfigRequest = (function (_super) {
 /// <reference path="../ts/com/game/view/display/Shield.ts" />
 /// <reference path="../ts/com/game/view/event/EnemyBulletEvent.ts" />
 /// <reference path="../ts/com/game/view/event/EnemyShipEvent.ts" />
+/// <reference path="../ts/com/game/view/event/GameViewEvent.ts" />
 /// <reference path="../ts/com/game/view/event/PlayerBulletEvent.ts" />
 /// <reference path="../ts/com/game/view/event/PlayerShipEvent.ts" />
 /// <reference path="../ts/com/game/view/style/Font.ts" />
-/// <reference path="../ts/com/game/view/style/Style.ts" />
 /// <reference path="../ts/com/game/view/util/BoundsUtil.ts" />
 /// <reference path="../ts/com/loading/Loader.ts" />
 /// <reference path="../ts/com/loading/data/ConfigData.ts" />

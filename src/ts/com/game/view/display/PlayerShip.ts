@@ -19,7 +19,7 @@ class PlayerShip extends AbstractView {
             this.removeChild(this.ship);
         }
         this.removeEventListeners();
-        this.dispatch(new PlayerShipEvent());
+        this.dispatch(new PlayerShipEvent(PlayerShipEvent.DEAD));
     }
 
     public addEventListeners():void {
@@ -45,12 +45,16 @@ class PlayerShip extends AbstractView {
     }
 
     private handleMouseMove(event:PIXI.interaction.InteractionEvent):void {
-        var data:PIXI.interaction.InteractionData = event.data;
-        this.ship.position = new PIXI.Point(data.global.x, this.ship.position.y);
+        var data: PIXI.interaction.InteractionData = event.data;
+        if (data.global.x < 265 && data.global.x > 0) {
+            this.ship.position = new PIXI.Point(data.global.x, this.ship.position.y);
+        }
     }
 
     private handleEnemyBulletMove(event:EnemyBulletEvent):void {
-        if (BoundsUtil.isInBounds(this.ship, event.getBullet().getSprite())) {
+        var blockWidth:number = 18;
+        var blockHeight:number = 18;
+        if (BoundsUtil.isInBounds(this.ship, event.getBullet().getSprite(), blockWidth, blockHeight)) {
             this.dispose();
         }
     }

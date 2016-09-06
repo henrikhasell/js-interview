@@ -12,6 +12,7 @@ class Shield extends AbstractView {
     public addEventListeners():void {
         this.listen(PlayerBulletEvent.MOVE, this.handlePlayerBulletMove, this);
         this.listen(EnemyBulletEvent.MOVE, this.handleEnemyBulletMove, this);
+        // this.listen(GameOverEvent.LOSE, this.handleGameOverEvent, this);
     }
 
     private createBlocks():void {
@@ -52,9 +53,11 @@ class Shield extends AbstractView {
     }
 
     private checkBlockBounds(bullet:PIXI.Sprite):PIXI.Sprite {
-        for (var i:number = 0; i < this.blocks.length; i++) {
-            var block:PIXI.Sprite = this.blocks[i];
-            if (block.visible && BoundsUtil.isInBounds(block, bullet)) {
+        var blockWidth: number = 6;
+        var blockHeight: number = 6;
+        for (var i: number = 0; i < this.blocks.length; i++) {
+            var block: PIXI.Sprite = this.blocks[i];
+            if (block.visible && BoundsUtil.isInBounds(block, bullet, blockWidth, blockHeight)) {
                 return block;
             }
         }

@@ -4,10 +4,29 @@ class EnemyShip extends AbstractView {
     private moveTimer:Timer;
     private fireTimer:Timer;
     private tweens:Dictionary<string, TweenMax>;
+    private fireSpeed:number;
+    private moveSpeed:number;
+    private enemySpeed:number;
+
+    constructor(enemySpeed:number) {
+        this.enemySpeed = enemySpeed;
+        super();
+    }
+
+    private setFireSpeed() {
+        this.fireSpeed = 60000 / this.enemySpeed;
+    }
+
+    private setMoveSpeed() {
+        this.moveSpeed = 40000 / this.enemySpeed;
+    }
 
     public create():void {
         super.create();
+        this.setFireSpeed();
+        this.setMoveSpeed();
         this.createShip();
+        this.createStartPoint(this.randomPoint);
         this.createTweens();
         this.startMoveTimer();
         this.startFireTimer();
@@ -19,12 +38,11 @@ class EnemyShip extends AbstractView {
         }
         this.moveTimer.removeEventListener(TimerEvent.TIMER, this);
         this.fireTimer.removeEventListener(TimerEvent.TIMER, this);
-        this.remove(PlayerBulletEvent.MOVE, this);
-        this.dispatch(new EnemyShipEvent());
     }
 
     public addEventListeners():void {
         this.listen(PlayerBulletEvent.MOVE, this.handlePlayerBullet, this);
+        // this.listen(GameOverEvent.LOSE, this.dispose, this);
     }
 
     private createShip():void {
@@ -33,18 +51,23 @@ class EnemyShip extends AbstractView {
         this.addChild(this.ship);
     }
 
+    private createStartPoint(point:PIXI.Point):void {
+        this.ship.position.x = point.x;
+        // this.ship.position.y = point.y;
+    }
+
     private createTweens():void {
         this.tweens = new Dictionary<string, TweenMax>();
     }
 
     private startMoveTimer():void {
-        this.moveTimer = new Timer(1000);
+        this.moveTimer = new Timer(this.moveSpeed);
         this.moveTimer.addEventListener(TimerEvent.TIMER, this.handleMoveTimerUpdate, this);
         this.moveTimer.start();
     }
 
     private startFireTimer():void {
-        this.fireTimer = new Timer(1500);
+        this.fireTimer = new Timer(this.fireSpeed);
         this.fireTimer.addEventListener(TimerEvent.TIMER, this.handleFireTimeUpdate, this);
         this.fireTimer.start();
     }
@@ -58,7 +81,11 @@ class EnemyShip extends AbstractView {
     }
 
     private handlePlayerBullet(event:PlayerBulletEvent):void {
-        if (BoundsUtil.isInBounds(this.ship, event.getBullet().getSprite())) {
+        var blockWidth:number = 16;
+        var blockHeight:number = 16;
+        if (BoundsUtil.isInBounds(this.ship, event.getBullet().getSprite(), blockWidth, blockHeight)) {
+            this.remove(PlayerBulletEvent.MOVE, this);
+            this.dispatch(new EnemyShipEvent());
             this.dispose();
         }
     }
@@ -73,5 +100,4 @@ class EnemyShip extends AbstractView {
         var y:number = Math.random() * (this.renderer.getGameSize().y - this.ship.height - 150);
         return new PIXI.Point(x, y);
     }
-
 }

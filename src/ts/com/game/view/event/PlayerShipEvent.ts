@@ -1,8 +1,9 @@
 class PlayerShipEvent extends EventObject {
 
     public static DEAD:string = 'PlayerShipEvent.DEAD';
+    public static REVIVE:string = "PlayerShipEvent.REVIVE";
 
-    constructor() {
-        super(PlayerShipEvent.DEAD);
+    constructor(type: string) {
+        super(type);
     }
 }

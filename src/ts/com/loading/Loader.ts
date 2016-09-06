@@ -18,10 +18,10 @@ class Loader extends EventDispatcher {
     private handleConfigComplete(event:EventObject) {
         var request:ConfigRequest = event.currentTarget;
         this.config = request.getConfig();
-        var files:Dictionary<string, FilePath> = request.getConfig().getFiles();
-        var values:FilePath [] = files.getValues();
-        var filesToLoad:string [] = [];
-        var filePath:FilePath;
+        var files: Dictionary<string, FilePath> = request.getConfig().getFiles();
+        var values: FilePath[] = files.getValues();
+        var filesToLoad: string[] = [];
+        var filePath: FilePath;
         for (var i:number = 0; i < values.length; i++) {
             filePath = values[i];
             filesToLoad.push(filePath.url);
@@ -39,6 +39,7 @@ class Loader extends EventDispatcher {
     private handleFilesComplete() {
         this.dispatchEvent(new EventObject(EventType.COMPLETE));
     }
+
 
     public getConfig() {
         return this.config;

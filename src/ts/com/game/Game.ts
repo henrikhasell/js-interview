@@ -12,11 +12,11 @@ class Game {
         this.createLoader();
     }
 
-    private createRenderer() {
+    private createRenderer():void {
         this.renderer = AbstractRenderer.getInstance().initialise(new PIXI.Point(300, 350))
     }
 
-    private createLoader() {
+    private createLoader():void {
         this.loader = new Loader("xml/Config.xml");
         this.loader.addEventListener(EventType.COMPLETE, this.handleLoadComplete, this);
         this.loader.load();
@@ -35,7 +35,7 @@ class Game {
         this.renderer.addChild(this.view);
     }
 
-    private handleLoadComplete() {
+    private handleLoadComplete():void {
         this.createModel();
         this.createController();
         this.createView();

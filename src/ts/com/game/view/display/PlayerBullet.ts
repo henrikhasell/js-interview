@@ -1,50 +1,11 @@
-class PlayerBullet extends AbstractView {
+class PlayerBullet extends Bullet {
 
-    private sprite:PIXI.Sprite;
-    private tween:TweenMax;
+    public fireYPosition:number;
 
-    constructor(position:PIXI.Point) {
-        super();
-        this.sprite.position = position;
-    }
-
-    public create():void {
-        super.create();
-        this.createBullet();
-    }
-
-    public dispose():void {
-        if(this.parent) {
-            this.renderer.removeChild(this);
-        }
-    }
-
-    private createBullet():void {
-        this.sprite = Style.getSprite(Style.PLAYER_BULLET);
-        this.addChild(this.sprite);
-    }
-
-    public fire():void {
-        this.renderer.addChild(this);
-        this.tween = TweenMax.to(this.sprite.position, 1,
-            {
-                y: 0,
-                ease: Linear.easeNone,
-                onUpdate: ObjectUtil.delegate(this.handleTweenUpdate, this),
-                onComplete: ObjectUtil.delegate(this.handleTweenComplete, this)
-            });
-    }
-
-    private handleTweenUpdate() {
-        this.dispatch(new PlayerBulletEvent(this));
-    }
-
-    private handleTweenComplete() {
-        this.dispose();
-    }
-
-    public getSprite() {
-        return this.sprite;
+    constructor(position: PIXI.Point) {
+        this.bulletStyle = Style.PLAYER_BULLET;
+        super(position);
+        this.event = new PlayerBulletEvent(this);
+        this.fireYPosition = 0;
     }
 }
-
